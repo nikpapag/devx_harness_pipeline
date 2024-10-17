@@ -1,0 +1,293 @@
+pipeline:
+  name: test-pipeline
+  identifier: testpipeline
+  projectIdentifier: devx_ci_cd
+  orgIdentifier: sandbox
+  tags: {}
+  properties:
+    ci:
+      codebase:
+        repoName: devx_python_api
+        build: <+input>
+  stages:
+    - stage:
+        name: Build and Test Automation
+        identifier: Build_and_Test_Automation
+        description: ""
+        type: CI
+        spec:
+          cloneCodebase: true
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+              - step:
+                  type: Test
+                  name: Unit Test
+                  identifier: Test
+                  spec:
+                    shell: Sh
+                    command: cd ./python-tests
+                    intelligenceMode: true
+              - step:
+                  name: compile
+                  identifier: compile
+                  template:
+                    templateRef: compile_angular
+                    versionLabel: v0.1
+              - parallel:
+                  - step:
+                      type: Checkmarx
+                      name: Checkmarx
+                      identifier: Checkmarx
+                      spec:
+                        mode: ingestion
+                        config: default
+                        target:
+                          type: repository
+                          name: checkmarx
+                          variant: harness-webinar
+                        advanced:
+                          log:
+                            level: info
+                        ingestion:
+                          file: automation/sto_test/scan_tools/checkmarx/001
+                  - step:
+                      type: Sonarqube
+                      name: Sonarqube
+                      identifier: Sonarqube
+                      spec:
+                        mode: ingestion
+                        config: default
+                        target:
+                          type: repository
+                          name: sonarqube
+                          variant: harness-webinar
+                        advanced:
+                          log:
+                            level: info
+                        ingestion:
+                          file: automation/sto_test/scan_tools/sonarqube/001
+              - step:
+                  type: BuildAndPushGAR
+                  name: Build Image and Push to GAR
+                  identifier: Build_Image_and_Push_to_GAR
+                  spec:
+                    connectorRef: account.GCP_Sales_Admin
+                    host: europe-west2-docker.pkg.dev
+                    projectID: sales-209522
+                    imageName: devx-demo/angular
+                    tags:
+                      - devx_<+variables.devx_username>
+                    caching: true
+                    dockerfile: /harness/frontend-app/harness-webapp/Dockerfile
+                    context: /harness/frontend-app/harness-webapp
+              - parallel:
+                  - step:
+                      name: Fortify
+                      identifier: Fortify
+                      template:
+                        templateRef: devx_fortify
+                        versionLabel: v0.1
+                  - step:
+                      name: veracode
+                      identifier: veracode
+                      template:
+                        templateRef: devx_veracode
+                        versionLabel: v0.1
+                  - step:
+                      name: OWASP
+                      identifier: OWASP
+                      template:
+                        templateRef: devx_owasp
+                        versionLabel: v0.1
+                  - step:
+                      type: SscaOrchestration
+                      name: Artifact SBOM
+                      identifier: SBOMOrchestration_1
+                      spec:
+                        mode: generation
+                        tool:
+                          type: Syft
+                          spec:
+                            format: spdx-json
+                        source:
+                          type: gar
+                          spec:
+                            connector: account.GCP_Sales_Admin
+                            image: devx-demo/angular:devx_<+variables.devx_username>
+                            host: europe-west2-docker.pkg.dev
+                            project_id: sales-209522
+                        sbom_drift:
+                          base: last_generated_sbom
+                        resources:
+                          limits:
+                            memory: 500Mi
+                            cpu: "0.5"
+    - stage:
+        name: Provision Environments
+        identifier: Provision_Environments
+        description: ""
+        type: IACM
+        spec:
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          workspace: devx_dev
+          execution:
+            steps:
+              - step:
+                  type: IACMTerraformPlugin
+                  name: init
+                  identifier: init
+                  timeout: 10m
+                  spec:
+                    command: init
+              - step:
+                  type: IACMTerraformPlugin
+                  name: plan
+                  identifier: plan
+                  timeout: 10m
+                  spec:
+                    command: plan
+              - step:
+                  type: Run
+                  name: apply
+                  identifier: apply
+                  spec:
+                    shell: Sh
+                    command: |-
+                      echo "
+                      0,out:latest: Pulling from gcr-prod/plugins/harness_terraform_vm\n,time:2024-10-17T02:08:41.674741189Z,args:null
+                      1,out:Digest: sha256:ac7ec51151d5f90e3e6833a0ae36904c0b95aa695acdc466786aa7e99f8c15b5\n,time:2024-10-17T02:08:41.677722286Z,args:null
+                      2,out:Status: Image is up to date for gcr.io/gcr-prod/plugins/harness_terraform_vm:latest\n,time:2024-10-17T02:08:41.67779975Z,args:null
+                      3,out:Starting IaCM plugin 0.96.0 (da25f1b6bd2ae7d2944d7c06c7d6e6ac091c5e02)\n,time:2024-10-17T02:08:41.905888362Z,args:null
+                      4,out:Workspace identifier is 'AWS_EC2'\n,time:2024-10-17T02:08:41.906253984Z,args:null
+                      5,out:Using Infracost cloud API.\n,time:2024-10-17T02:08:42.036174691Z,args:null
+                      6,out:Current directory is /harness\n,time:2024-10-17T02:08:42.03623396Z,args:null
+                      7,out:Setting working directory to /harness\n,time:2024-10-17T02:08:42.036250636Z,args:null
+                      8,out:Attempting to configure AWS credentials...\n,time:2024-10-17T02:08:42.036488356Z,args:null
+                      9,out:Generating the AWS credentials from env variables\n,time:2024-10-17T02:08:42.036540634Z,args:null
+                      10,out:Attempting to configure Azure credentials...\n,time:2024-10-17T02:08:42.036557054Z,args:null
+                      11,out:No Azure credentials present\n,time:2024-10-17T02:08:42.036571031Z,args:null
+                      12,out:Attempting to configure GCP credentials...\n,time:2024-10-17T02:08:42.036584683Z,args:null
+                      13,out:No GCP credentials present\n,time:2024-10-17T02:08:42.036597046Z,args:null
+                      14,out:Using terraform variable: ami=ami-09ff94ae883853013\n,time:2024-10-17T02:08:42.03661104Z,args:null
+                      15,out:Using terraform variable: instance_count=1\n,time:2024-10-17T02:08:42.036625409Z,args:null
+                      16,out:Using terraform variable: instance_type=t2.micro\n,time:2024-10-17T02:08:42.036639001Z,args:null
+                      17,out:Using terraform variable: key_name=lr-key-delegate\n,time:2024-10-17T02:08:42.036655115Z,args:null
+                      18,out:Using terraform variable: name=terraform-iacm-12345\n,time:2024-10-17T02:08:42.036668894Z,args:null
+                      19,out:Using terraform variable: region=us-east-2\n,time:2024-10-17T02:08:42.036681461Z,args:null
+                      20,out:Using terraform variable: subnet_id=subnet-16dad05b\n,time:2024-10-17T02:08:42.036694766Z,args:null
+                      21,out:Using terraform variable: vpc_security_group_ids=[\sg-078339fd2b4e5b1a5\]\n,time:2024-10-17T02:08:42.036737657Z,args:null
+                      22,out:Running command: terraform version -json\n,time:2024-10-17T02:08:42.036902652Z,args:null
+                      23,out:Running terraform to apply changes ...\n,time:2024-10-17T02:08:42.303035448Z,args:null
+                      24,out:Checking for remote backend\n,time:2024-10-17T02:08:42.303082429Z,args:null
+                      25,out:No terraform state file found\n,time:2024-10-17T02:08:42.303092329Z,args:null
+                      26,out:No remote backend found, locking workspace\n,time:2024-10-17T02:08:42.303101552Z,args:null
+                      27,out:Running command: terraform apply -no-color -auto-approve -input=false -lock=true -parallelism=10 -refresh=true /harness/plan.out\n,time:2024-10-17T02:08:42.327643086Z,args:null
+                      28,out:\n,time:2024-10-17T02:08:44.277266559Z,args:null
+                      29,out:Apply complete! Resources: 0 added, 0 changed, 0 destroyed.\n,time:2024-10-17T02:08:44.277294131Z,args:null
+                      30,out:\n,time:2024-10-17T02:08:44.277297037Z,args:null
+                      31,out:Outputs:\n,time:2024-10-17T02:08:44.277298939Z,args:null
+                      32,out:\n,time:2024-10-17T02:08:44.277301072Z,args:null
+                      33,out:arn = [\n,time:2024-10-17T02:08:44.277303525Z,args:null
+                      34,out:  \arn:aws:ec2:us-east-2:759984737373:instance/i-065f909e54d721994\,\n,time:2024-10-17T02:08:44.277327714Z,args:null
+                      35,out:]\n,time:2024-10-17T02:08:44.277330228Z,args:null
+                      36,out:availability_zone = [\n,time:2024-10-17T02:08:44.277332481Z,args:null
+                      37,out:  \us-east-2c\,\n,time:2024-10-17T02:08:44.277336896Z,args:null
+                      38,out:]\n,time:2024-10-17T02:08:44.277338607Z,args:null
+                      39,out:credit_specification = [\n,time:2024-10-17T02:08:44.277340612Z,args:null
+                      40,out:  tolist([\n,time:2024-10-17T02:08:44.277342968Z,args:null
+                      41,out:    {\n,time:2024-10-17T02:08:44.27734484Z,args:null
+                      42,out:      \cpu_credits\ = \standard\\n,time:2024-10-17T02:08:44.277346834Z,args:null
+                      43,out:    ,\n,time:2024-10-17T02:08:44.277348783Z,args:null
+                      44,out:  ]),\n,time:2024-10-17T02:08:44.277350351Z,args:null
+                      45,out:]\n,time:2024-10-17T02:08:44.277351879Z,args:null
+                      46,out:ebs_block_device_volume_ids = [\n,time:2024-10-17T02:08:44.277353754Z,args:null
+                      47,out:  tolist([]),\n,time:2024-10-17T02:08:44.277355654Z,args:null
+                      48,out:]\n,time:2024-10-17T02:08:44.277357202Z,args:null
+                      49,out:id = [\n,time:2024-10-17T02:08:44.277361163Z,args:null
+                      50,out:  \i-065f909e54d721994\,\n,time:2024-10-17T02:08:44.277362919Z,args:null
+                      51,out:]\n,time:2024-10-17T02:08:44.277364469Z,args:null
+                      52,out:instance_count = 1\n,time:2024-10-17T02:08:44.277383036Z,args:null
+                      53,out:instance_state = [\n,time:2024-10-17T02:08:44.27738537Z,args:null
+                      54,out:  \running\,\n,time:2024-10-17T02:08:44.277387285Z,args:null
+                      55,out:]\n,time:2024-10-17T02:08:44.277388906Z,args:null
+                      56,out:ipv6_addresses = [\n,time:2024-10-17T02:08:44.277390491Z,args:null
+                      57,out:  tolist([]),\n,time:2024-10-17T02:08:44.277392133Z,args:null
+                      58,out:]\n,time:2024-10-17T02:08:44.277393597Z,args:null
+                      59,out:key_name = [\n,time:2024-10-17T02:08:44.277395191Z,args:null
+                      60,out:  \lr-key-delegate\,\n,time:2024-10-17T02:08:44.277396968Z,args:null
+                      61,out:]\n,time:2024-10-17T02:08:44.277398734Z,args:null
+                      62,out:password_data = [\n,time:2024-10-17T02:08:44.277400364Z,args:null
+                      63,out:  \\,\n,time:2024-10-17T02:08:44.27740196Z,args:null
+                      64,out:]\n,time:2024-10-17T02:08:44.277403579Z,args:null
+                      65,out:placement_group = [\n,time:2024-10-17T02:08:44.27740609Z,args:null
+                      66,out:  \\,\n,time:2024-10-17T02:08:44.277407631Z,args:null
+                      67,out:]\n,time:2024-10-17T02:08:44.277409162Z,args:null
+                      68,out:primary_network_interface_id = [\n,time:2024-10-17T02:08:44.277411036Z,args:null
+                      69,out:  \eni-0ed03a3241be331a9\,\n,time:2024-10-17T02:08:44.277412784Z,args:null
+                      70,out:]\n,time:2024-10-17T02:08:44.277414344Z,args:null
+                      71,out:private_dns = [\n,time:2024-10-17T02:08:44.277416015Z,args:null
+                      72,out:  \ip-172-31-46-188.us-east-2.compute.internal\,\n,time:2024-10-17T02:08:44.277417993Z,args:null
+                      73,out:]\n,time:2024-10-17T02:08:44.277419756Z,args:null
+                      74,out:private_ip = [\n,time:2024-10-17T02:08:44.277422495Z,args:null
+                      75,out:  \172.31.46.188\,\n,time:2024-10-17T02:08:44.277424223Z,args:null
+                      76,out:]\n,time:2024-10-17T02:08:44.277425787Z,args:null
+                      77,out:public_dns = [\n,time:2024-10-17T02:08:44.277441741Z,args:null
+                      78,out:  \ec2-3-138-85-154.us-east-2.compute.amazonaws.com\,\n,time:2024-10-17T02:08:44.277443696Z,args:null
+                      79,out:]\n,time:2024-10-17T02:08:44.277445293Z,args:null
+                      80,out:public_ip = [\n,time:2024-10-17T02:08:44.277446857Z,args:null
+                      81,out:  \3.138.85.154\,\n,time:2024-10-17T02:08:44.277448423Z,args:null
+                      82,out:]\n,time:2024-10-17T02:08:44.277449942Z,args:null
+                      83,out:root_block_device_volume_ids = [\n,time:2024-10-17T02:08:44.277451811Z,args:null
+                      84,out:  tolist([\n,time:2024-10-17T02:08:44.277453553Z,args:null
+                      85,out:    \vol-031c7b71c74b06088\,\n,time:2024-10-17T02:08:44.277455219Z,args:null
+                      86,out:  ]),\n,time:2024-10-17T02:08:44.277456869Z,args:null
+                      87,out:]\n,time:2024-10-17T02:08:44.277458342Z,args:null
+                      88,out:security_groups = [\n,time:2024-10-17T02:08:44.277459953Z,args:null
+                      89,out:  toset([\n,time:2024-10-17T02:08:44.277461653Z,args:null
+                      90,out:    \launch-wizard-46\,\n,time:2024-10-17T02:08:44.277463588Z,args:null
+                      91,out:  ]),\n,time:2024-10-17T02:08:44.277465141Z,args:null
+                      92,out:]\n,time:2024-10-17T02:08:44.277466643Z,args:null
+                      93,out:subnet_id = [\n,time:2024-10-17T02:08:44.277468431Z,args:null
+                      94,out:  \subnet-16dad05b\,\n,time:2024-10-17T02:08:44.277470079Z,args:null
+                      95,out:]\n,time:2024-10-17T02:08:44.277471602Z,args:null
+                      96,out:tags = [\n,time:2024-10-17T02:08:44.277473193Z,args:null
+                      97,out:  tomap({\n,time:2024-10-17T02:08:44.277474854Z,args:null
+                      98,out:    \Name\ = \terraform-iacm-12345\\n,time:2024-10-17T02:08:44.277476633Z,args:null
+                      99,out:  ),\n,time:2024-10-17T02:08:44.277478275Z,args:null
+                      100,out:]\n,time:2024-10-17T02:08:44.277479731Z,args:null
+                      101,out:volume_tags = [\n,time:2024-10-17T02:08:44.277481727Z,args:null
+                      102,out:  tomap({\n,time:2024-10-17T02:08:44.27748338Z,args:null
+                      103,out:    \Name\ = \terraform-iacm-12345\\n,time:2024-10-17T02:08:44.277491962Z,args:null
+                      104,out:  ),\n,time:2024-10-17T02:08:44.277494174Z,args:null
+                      105,out:]\n,time:2024-10-17T02:08:44.277495713Z,args:null
+                      106,out:vpc_security_group_ids = [\n,time:2024-10-17T02:08:44.277497659Z,args:null
+                      107,out:  toset([\n,time:2024-10-17T02:08:44.277499379Z,args:null
+                      108,out:    \sg-078339fd2b4e5b1a5\,\n,time:2024-10-17T02:08:44.277501845Z,args:null
+                      109,out:  ]),\n,time:2024-10-17T02:08:44.277503423Z,args:null
+                      110,out:]\n,time:2024-10-17T02:08:44.27750494Z,args:null
+                      111,out:Unlocking workspace\n,time:2024-10-17T02:08:44.284022985Z,args:null
+                      112,out:Checking for existing terraform state in Harness ...\n,time:2024-10-17T02:08:44.306884233Z,args:null
+                      113,out:Running command: terraform state pull\n,time:2024-10-17T02:08:44.306929653Z,args:null
+                      114,out:Running command: terraform output -no-color -json\n,time:2024-10-17T02:08:45.583109837Z,args:null
+                      115,out:Wrote output variables to: /tmp/engine/pP8422EQeA29J4Y-output.env\n,time:2024-10-17T02:08:46.833610315Z,args:null
+                      116,out:Running command: terraform show -json -no-color /harness/terraform.tfstate\n,time:2024-10-17T02:08:46.833633353Z,args:null
+                      117,out:Stored terraform state with ID: 0c272239-d9c9-458b-8b9f-cf46cd7b17df\n,time:2024-10-17T02:08:50.105890394Z,args:null
+                      118,out:Policy evaluation on the state succeeded ...\n,time:2024-10-17T02:08:50.105981028Z,args:null
+                      119,out:Updating server data after apply ...\n,time:2024-10-17T02:08:50.107242441Z,args:null
+                      120,out:  - Raw State =\u003e 0c272239-d9c9-458b-8b9f-cf46cd7b17df\n,time:2024-10-17T02:08:50.107289926Z,args:null
+                      121,out:  - JSON State =\u003e 21dcc557-742d-43d8-bdea-fd326d11cba3\n,time:2024-10-17T02:08:50.107341853Z,args:null
+                      122,out:  - Cost Breakdown =\u003e 513a54ce-ddab-4433-858b-63072278332d\n,time:2024-10-17T02:08:50.107357987Z,args:null
+                      123,out:  - Cost Difference =\u003e e3928c70-4c49-4a01-b161-8e0bdcebaa8a\n,time:2024-10-17T02:08:50.107371907Z,args:null
+                      "
+        tags: {}
